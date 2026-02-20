@@ -131,16 +131,29 @@ lib_deps =
 
 ### Emulator Environment (SDL2-based)
 
+The SDL2 emulator configuration uses a two-level hierarchy to avoid GCC
+`macro redefined` warnings when a board needs a non-default scale or rotation:
+
 ```ini
-[env:emulator_common]
+; Base: everything shared by all emulator envs EXCEPT scale and rotation
+; (those vary per board — putting them here would cause redefinition warnings)
+[env:emulator_sdl_base]
 build_flags =
   ${env.build_flags}
   -l SDL2                       # Link SDL2 library
   -D M5GFX_SHOW_FRAME           # Show device frame
   -D M5GFX_BACK_COLOR=0xFFFFFFU # White background
-  -D M5GFX_SCALE=2              # 2x scaling for visibility
-  -D M5GFX_ROTATION=0           # No rotation
+
+; Default for all boards except M5Tab5: 2x scale, 0° rotation
+[env:emulator_common]
+extends = emulator_sdl_base
+build_flags =
+  ${env:emulator_sdl_base.build_flags}
+  -D M5GFX_SCALE=2              # 2x upscale for small displays
+  -D M5GFX_ROTATION=0           # Portrait / default orientation
 ```
+
+> **Why the split?** GCC warns `'M5GFX_SCALE' redefined` whenever two `-D` definitions for the same macro appear on the same command line. Because PlatformIO's `extends` fully inlines parent flags, a child env that adds `-DM5GFX_SCALE=1` ends up with *both* `-DM5GFX_SCALE=2` (from the parent) and `-DM5GFX_SCALE=1` on the same command line. The fix is to keep `SCALE` and `ROTATION` out of the shared base and define them only once in each concrete env.
 
 ### Platform-Specific Configs
 
@@ -157,13 +170,38 @@ build_flags =
 ```
 
 **Available Emulator Environments:**
-- `emulator_Core` - M5Stack Classic
-- `emulator_Core2` - M5Stack Core2
-- `emulator_CoreS3` - M5Stack Core S3
-- `emulator_StickCPlus` - M5Stick-C Plus
-- `emulator_StickCPlus2` - M5Stick-C Plus 2
-- `emulator_Dial` - M5Dial
-- `emulator_Tab5` - M5Tab5
+| Environment | Board | Window size | Notes |
+|---|---|---|---|
+| `emulator_Core` | M5Stack Classic | 320×240 @2x = 640×480 | |
+| `emulator_Core2` | M5Stack Core2 | 320×240 @2x = 640×480 | |
+| `emulator_CoreS3` | M5Stack Core S3 | 320×240 @2x = 640×480 | |
+| `emulator_StickCPlus` | M5Stick-C Plus | 135×240 @2x = 270×480 | |
+| `emulator_StickCPlus2` | M5Stick-C Plus 2 | 135×240 @2x = 270×480 | |
+| `emulator_Dial` | M5Dial | 240×240 @2x = 480×480 | |
+| `emulator_Tab5` | M5Tab5 | 1280×720 @1x | Landscape — see below |
+
+#### M5Tab5 Emulator Configuration
+
+The M5Tab5 has a **1280×800 display** — already large enough at native (1:1) resolution.
+Additionally, its natural orientation is **landscape**, so `ROTATION=1` is set to swap
+the SDL window from portrait (720×1280) to landscape (1280×720):
+
+```ini
+[env:emulator_Tab5]
+extends = emulator_common          ; inherits platform, extra_scripts, etc.
+platform = native@^1.2.1
+extra_scripts = support/sdl2_build_extra.py
+build_type = debug
+build_flags =
+  ${env:emulator_sdl_base.build_flags}  ; ← use BASE (not common) to avoid SCALE/ROTATION redefinition
+  -D M5GFX_BOARD=board_M5Tab5
+  -D M5GFX_SCALE=1              # 1:1 — 1280px wide already fills most screens
+  -D M5GFX_ROTATION=1           # Landscape: M5GFX swaps frame to 1280×720
+```
+
+> **Key:** `emulator_Tab5` inherits from `emulator_sdl_base` (not `emulator_common`)
+> so that `SCALE=2` and `ROTATION=0` from `emulator_common` never appear on its
+> command line alongside `SCALE=1` and `ROTATION=1`.
 
 ---
 
@@ -515,7 +553,11 @@ Using a release tag ZIP means PlatformIO never re-downloads it and the file coun
 
 ---
 
-**Document Version:** 1.1  
+**Document Version:** 1.2  
 **Last Updated:** 2026-02-20  
 **Status:** ✅ Verified Working on Windows MinGW64 + SDL2  
-**Change:** Added Incident Report for M5GFX auto-update / command line too long breakage
+
+**Changelog:**  
+- **v1.2** — Documented `emulator_sdl_base` refactor; added M5Tab5 landscape config (`SCALE=1`, `ROTATION=1`); added board resolution table  
+- **v1.1** — Added Incident Report for M5GFX auto-update / command line too long breakage  
+- **v1.0** — Initial guide
